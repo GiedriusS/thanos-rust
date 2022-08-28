@@ -7,6 +7,8 @@ package thanos;
 import "types.proto";
 import "prompbtypes.proto";
 import "labelpbtypes.proto";
+import "google/protobuf/any.proto";
+
 
 /// Store represents API against instance that stores XOR encoded values with label set metadata (e.g Prometheus metrics).
 service Store {

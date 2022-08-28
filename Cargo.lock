@@ -688,6 +688,8 @@ dependencies = [
 name = "thanos-rust"
 version = "0.1.0"
 dependencies = [
+ "futures-core",
+ "hyper",
  "prost",
  "prost-types",
  "tokio",

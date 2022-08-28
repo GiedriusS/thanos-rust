@@ -9,6 +9,7 @@ fn main() {
                 "./proto/prompbtypes.proto",
                 "./proto/rpc.proto",
                 "./proto/types.proto",
+                "./proto/remote.proto",
             ],
             &["./proto/"],
         )

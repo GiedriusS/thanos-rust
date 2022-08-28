@@ -1,8 +1,16 @@
-use thanos::{InfoRequest, InfoResponse, Label, StoreType, ZLabelSet};
+use core::pin::Pin;
+use futures_core::Stream;
+use thanos::{
+    InfoRequest, InfoResponse, Label, LabelNamesRequest, LabelNamesResponse, LabelValuesRequest,
+    LabelValuesResponse, SeriesRequest, SeriesResponse, StoreType, ZLabelSet,
+};
 use tonic::{transport::Server, Request, Response, Status};
 
 #[derive(Default)]
-pub struct StoreImpl {}
+pub struct StoreImpl {
+    pub prometheus_client: prometheus_client::PrometheusClient,
+}
+mod prometheus_client;
 
 mod thanos {
     include!("thanos.rs");
@@ -38,13 +46,55 @@ impl Store for StoreImpl {
 
         Ok(Response::new(response))
     }
+
+    async fn label_values(
+        &self,
+        request: Request<LabelValuesRequest>,
+    ) -> Result<Response<LabelValuesResponse>, Status> {
+        self.prometheus_client.get_status().await;
+
+        let response = LabelValuesResponse {
+            values: vec!["test".to_string()],
+            warnings: vec!["warning".to_string()],
+            hints: None,
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn label_names(
+        &self,
+        request: Request<LabelNamesRequest>,
+    ) -> Result<Response<LabelNamesResponse>, Status> {
+        let response = LabelNamesResponse {
+            names: vec!["test".to_string()],
+            warnings: vec!["warning".to_string()],
+            hints: None,
+        };
+
+        Ok(Response::new(response))
+    }
+
+    type SeriesStream =
+        Pin<Box<dyn Stream<Item = Result<SeriesResponse, Status>> + Send + 'static>>;
+
+    async fn series(
+        &self,
+        _request: tonic::Request<SeriesRequest>,
+    ) -> Result<Response<Self::SeriesStream>, Status> {
+        unimplemented!()
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "[::1]:50051".parse().unwrap();
+    let addr = "0.0.0.0:50051".parse().unwrap();
 
-    let store = StoreImpl::default();
+    let store = StoreImpl {
+        prometheus_client: prometheus_client::PrometheusClient {
+            url: "http://127.0.0.1:9090".to_string(),
+        },
+    };
 
     println!("Store server listening on {}", addr);
 
