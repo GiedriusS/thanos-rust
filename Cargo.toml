@@ -12,6 +12,7 @@ prost = "0.10.1"
 prost-types = "0.10.1"
 futures-core = "0.3"
 hyper = "0.14"
+snap = "1"
 
 
 [build-dependencies]
