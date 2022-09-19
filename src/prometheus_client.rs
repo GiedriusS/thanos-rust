@@ -1,9 +1,8 @@
-use hyper::body::HttpBody as _;
-use hyper::{Body, Client, Request};
+use futures_util::StreamExt;
+use hyper::Body;
 use prometheus_copy::{label_matcher, read_request, LabelMatcher, Query, ReadRequest};
 use prost::Message;
 use snap::raw::Encoder;
-use tokio::io::{stdout, AsyncWriteExt as _};
 
 mod thanos {
     include!("thanos.rs");
@@ -23,9 +22,10 @@ impl PrometheusClient {
         println!("hello!");
 
         // Still inside `async fn main`...
-        let client = Client::new();
 
-        let readRequest = ReadRequest {
+        let client = reqwest::Client::new();
+
+        let read_request = ReadRequest {
             accepted_response_types: vec![read_request::ResponseType::StreamedXorChunks as i32],
             queries: vec![Query {
                 start_timestamp_ms: 0,
@@ -39,24 +39,23 @@ impl PrometheusClient {
             }],
         };
 
-        let encodedReq = readRequest.encode_to_vec();
+        let encoded_req = read_request.encode_to_vec();
         let mut encoder = Encoder::new();
-        let compressedReq = encoder.compress_vec(&encodedReq).unwrap();
+        let compressed_req = encoder.compress_vec(&encoded_req).unwrap();
 
         // Parse an `http::Uri`...
-        let req = Request::builder()
-            .method("POST")
-            .uri(self.url.clone() + "/api/v1/read")
-            .body(Body::from(compressedReq))
+        let res = client
+            .post(self.url.clone() + "/api/v1/read")
+            .body(Body::from(compressed_req))
+            .send()
+            .await
             .unwrap();
 
-        // Await the response...
-        let mut resp = client.request(req).await.unwrap();
+        let mut stream = res.bytes_stream();
 
-        while let Some(chunk) = resp.body_mut().data().await {
-            stdout().write_all(&chunk.unwrap()).await.unwrap();
+        while let Some(item) = stream.next().await {
+            // decode and send it over stream
+            println!("Chunk: {:?}", item.unwrap());
         }
-
-        println!("Response: {}", resp.status());
     }
 }
