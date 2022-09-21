@@ -1,16 +1,10 @@
+use crate::prometheus_copy::{label_matcher, read_request, LabelMatcher, Query, ReadRequest};
+use crate::thanos::{SeriesRequest, SeriesResponse};
 use futures_util::StreamExt;
 use hyper::Body;
-use prometheus_copy::{label_matcher, read_request, LabelMatcher, Query, ReadRequest};
 use prost::Message;
 use snap::raw::Encoder;
-
-mod thanos {
-    include!("thanos.rs");
-}
-
-mod prometheus_copy {
-    include!("prometheus_copy.rs");
-}
+use tokio::sync::mpsc;
 
 #[derive(Default)]
 pub struct PrometheusClient {
@@ -18,18 +12,20 @@ pub struct PrometheusClient {
 }
 
 impl PrometheusClient {
-    pub async fn get_status(&self) {
-        println!("hello!");
-
-        // Still inside `async fn main`...
-
+    pub async fn get_status(
+        &self,
+        req: tonic::Request<SeriesRequest>,
+        sender: mpsc::Sender<Result<SeriesResponse, tonic::Status>>,
+    ) {
         let client = reqwest::Client::new();
+
+        let message = req.get_ref();
 
         let read_request = ReadRequest {
             accepted_response_types: vec![read_request::ResponseType::StreamedXorChunks as i32],
             queries: vec![Query {
-                start_timestamp_ms: 0,
-                end_timestamp_ms: 2663243063000,
+                start_timestamp_ms: message.min_time,
+                end_timestamp_ms: message.max_time,
                 hints: None,
                 matchers: vec![LabelMatcher {
                     name: "__name__".to_string(),

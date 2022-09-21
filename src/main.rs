@@ -1,24 +1,19 @@
-use core::pin::Pin;
-use futures_core::Stream;
+use std::sync::Arc;
 use thanos::{
     InfoRequest, InfoResponse, Label, LabelNamesRequest, LabelNamesResponse, LabelValuesRequest,
     LabelValuesResponse, SeriesRequest, SeriesResponse, StoreType, ZLabelSet,
 };
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::{transport::Server, Request, Response, Status};
 
 #[derive(Default)]
 pub struct StoreImpl {
-    pub prometheus_client: prometheus_client::PrometheusClient,
+    pub prometheus_client: std::sync::Arc<prometheus_client::PrometheusClient>,
 }
 mod prometheus_client;
-
-mod thanos {
-    include!("thanos.rs");
-}
-
-mod prometheus_copy {
-    include!("prometheus_copy.rs");
-}
+mod prometheus_copy;
+mod thanos;
 
 use crate::thanos::store_server::Store;
 use crate::thanos::store_server::StoreServer;
@@ -47,12 +42,12 @@ impl Store for StoreImpl {
         Ok(Response::new(response))
     }
 
+    type SeriesStream = ReceiverStream<Result<SeriesResponse, Status>>;
+
     async fn label_values(
         &self,
         request: Request<LabelValuesRequest>,
     ) -> Result<Response<LabelValuesResponse>, Status> {
-        self.prometheus_client.get_status().await;
-
         let response = LabelValuesResponse {
             values: vec!["test".to_string()],
             warnings: vec!["warning".to_string()],
@@ -75,14 +70,19 @@ impl Store for StoreImpl {
         Ok(Response::new(response))
     }
 
-    type SeriesStream =
-        Pin<Box<dyn Stream<Item = Result<SeriesResponse, Status>> + Send + 'static>>;
-
     async fn series(
         &self,
-        _request: tonic::Request<SeriesRequest>,
+        request: tonic::Request<SeriesRequest>,
     ) -> Result<Response<Self::SeriesStream>, Status> {
-        unimplemented!()
+        let (mut tx, rx) = mpsc::channel(1);
+
+        let client = self.prometheus_client.clone();
+
+        tokio::spawn(async move {
+            client.get_status(request, tx).await;
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 }
 
@@ -91,9 +91,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "0.0.0.0:50051".parse().unwrap();
 
     let store = StoreImpl {
-        prometheus_client: prometheus_client::PrometheusClient {
+        prometheus_client: Arc::new(prometheus_client::PrometheusClient {
             url: "http://127.0.0.1:9090".to_string(),
-        },
+        }),
     };
 
     println!("Store server listening on {}", addr);
