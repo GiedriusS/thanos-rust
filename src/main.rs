@@ -48,6 +48,7 @@ impl Store for StoreImpl {
         &self,
         request: Request<LabelValuesRequest>,
     ) -> Result<Response<LabelValuesResponse>, Status> {
+        // TODO: send req to Prometheus.
         let response = LabelValuesResponse {
             values: vec!["test".to_string()],
             warnings: vec!["warning".to_string()],
@@ -61,6 +62,7 @@ impl Store for StoreImpl {
         &self,
         request: Request<LabelNamesRequest>,
     ) -> Result<Response<LabelNamesResponse>, Status> {
+        // TODO: send req to Prometheus.
         let response = LabelNamesResponse {
             names: vec!["test".to_string()],
             warnings: vec!["warning".to_string()],

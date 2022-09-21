@@ -3,6 +3,7 @@ name = "thanos-rust"
 version = "0.1.0"
 edition = "2021"
 
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -18,6 +19,8 @@ unsigned-varint = { version = "0.7.1", features = ["std"] }
 reqwest = { version = "0.11.11", features = ["stream"] }
 futures-util = "0.3.24"
 tokio-stream = "0.1.10"
+crc = "3.0.0"
 
 [build-dependencies]
 tonic-build = "0.7.2"
+
