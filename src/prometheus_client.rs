@@ -1,7 +1,11 @@
-use crate::prometheus_copy::{read_request, LabelMatcher, Query, ReadRequest};
-use crate::thanos::{LabelMatcher as ThanosLabelMatcher, SeriesRequest, SeriesResponse};
+use crate::prometheus_copy::{read_request, ChunkedReadResponse, LabelMatcher, Query, ReadRequest};
+use crate::thanos::{
+    series_response, AggrChunk, Chunk, LabelMatcher as ThanosLabelMatcher, Series, SeriesRequest,
+    SeriesResponse,
+};
 use bytes::Buf;
-use crc::{Algorithm, Crc, CRC_32_ISCSI};
+use bytes::Bytes;
+use crc::{Crc, CRC_32_ISCSI};
 use futures_util::StreamExt;
 use hyper::Body;
 use prost::Message;
@@ -29,13 +33,6 @@ fn as_u32_be(array: &[u8; 4]) -> u32 {
         + ((array[3] as u32) << 0)
 }
 
-fn as_u32_le(array: &[u8; 4]) -> u32 {
-    ((array[0] as u32) << 0)
-        + ((array[1] as u32) << 8)
-        + ((array[2] as u32) << 16)
-        + ((array[3] as u32) << 24)
-}
-
 fn thanos_to_prom_matchers(thanos_matchers: &Vec<ThanosLabelMatcher>) -> Vec<LabelMatcher> {
     thanos_matchers.iter().map(convert_matcher).collect()
 }
@@ -49,9 +46,6 @@ impl PrometheusClient {
         let client = reqwest::Client::new();
 
         let message = req.get_ref();
-
-        // TODO: stream responses and send to client.
-
         let read_request = ReadRequest {
             accepted_response_types: vec![read_request::ResponseType::StreamedXorChunks as i32],
             queries: vec![Query {
@@ -88,24 +82,55 @@ impl PrometheusClient {
             let mut crc: [u8; 4] = [0, 0, 0, 0];
 
             let data_size = unsigned_varint::io::read_usize(&mut reader).unwrap();
-            print!("data size is {}", data_size);
 
             reader.read_exact(&mut crc).unwrap();
 
-            let mut data = Vec::new();
+            let mut data = Vec::with_capacity(data_size as usize);
             reader.read_to_end(&mut data).unwrap();
 
             pub const CASTAGNOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
 
             let calculated_checksum = CASTAGNOLI.checksum(&data);
 
-            print!(
-                "calculated crc32 {}, got crc32 {}, vec len {}, got data length {}\n",
-                calculated_checksum,
-                as_u32_be(&crc),
-                data.len(),
-                data_size,
-            );
+            if as_u32_be(&crc) != calculated_checksum {
+                panic!(
+                    "invalid CRC32: got {}, received {}",
+                    as_u32_be(&crc),
+                    calculated_checksum
+                );
+            }
+
+            let resp = ChunkedReadResponse::decode(Bytes::from(data)).unwrap();
+
+            for chunked_series in resp.chunked_series {
+                let mut thanos_chks: Vec<AggrChunk> = vec![];
+
+                for prom_chk in chunked_series.chunks {
+                    thanos_chks.push(AggrChunk {
+                        min_time: prom_chk.min_time_ms,
+                        max_time: prom_chk.max_time_ms,
+                        raw: Some(Chunk {
+                            data: prom_chk.data,
+                            r#type: prom_chk.r#type - 1,
+                        }),
+                        count: None,
+                        counter: None,
+                        max: None,
+                        min: None,
+                        sum: None,
+                    });
+                }
+                let series_resp = SeriesResponse {
+                    result: Some(series_response::Result::Series(Series {
+                        labels: chunked_series.labels,
+                        chunks: thanos_chks,
+                    })),
+                };
+
+                sender.send(Ok(series_resp)).await.unwrap();
+            }
+
+            // TODO: Extend with external labelset.
         }
     }
 }
