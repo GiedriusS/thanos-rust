@@ -24,18 +24,30 @@ impl Store for StoreImpl {
         println!("Request from {:?}", request.remote_addr());
 
         let response = InfoResponse {
-            labels: vec![Label {
-                name: "foo".to_string(),
-                value: "bar".to_string(),
-            }],
-            min_time: 123,
-            max_time: 555,
+            labels: vec![
+                Label {
+                    name: "dc".to_string(),
+                    value: "hx".to_string(),
+                },
+                Label {
+                    name: "prometheus_node_id".to_string(),
+                    value: "5".to_string(),
+                },
+            ],
+            min_time: i64::MIN,
+            max_time: i64::MAX,
             store_type: StoreType::Sidecar as i32,
             label_sets: vec![ZLabelSet {
-                labels: vec![Label {
-                    name: "foo".to_string(),
-                    value: "bar".to_string(),
-                }],
+                labels: vec![
+                    Label {
+                        name: "dc".to_string(),
+                        value: "hx".to_string(),
+                    },
+                    Label {
+                        name: "prometheus_node_id".to_string(),
+                        value: "5".to_string(),
+                    },
+                ],
             }],
         };
 
@@ -48,10 +60,15 @@ impl Store for StoreImpl {
         &self,
         request: Request<LabelValuesRequest>,
     ) -> Result<Response<LabelValuesResponse>, Status> {
-        // TODO: send req to Prometheus.
+        let client = self.prometheus_client.clone();
+
+        let message = request.get_ref();
+
+        let vals = client.label_values(message.label.clone()).await;
+
         let response = LabelValuesResponse {
-            values: vec!["test".to_string()],
-            warnings: vec!["warning".to_string()],
+            values: vals,
+            warnings: vec![],
             hints: None,
         };
 
@@ -76,12 +93,12 @@ impl Store for StoreImpl {
         &self,
         request: tonic::Request<SeriesRequest>,
     ) -> Result<Response<Self::SeriesStream>, Status> {
-        let (mut tx, rx) = mpsc::channel(1);
+        let (tx, rx) = mpsc::channel(20);
 
         let client = self.prometheus_client.clone();
 
         tokio::spawn(async move {
-            client.get_status(request, tx).await;
+            client.remote_read(request, tx).await;
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))

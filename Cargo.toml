@@ -15,11 +15,15 @@ futures-core = "0.3"
 hyper = "0.14"
 snap = "1"
 bytes = "1"
-unsigned-varint = { version = "0.7.1", features = ["std"] }
-reqwest = { version = "0.11.11", features = ["stream"] }
+unsigned-varint = { git = "https://github.com/GiedriusS/unsigned-varint", branch = "asyncread_tokio_a", features = ["std", "futures", "codec", "asynchronous_codec"] }
+
+reqwest = { version = "0.11.11", features = ["json", "stream"] }
 futures-util = "0.3.24"
+tokio-util = { version = "0.6.3", features = ["io"] }
 tokio-stream = "0.1.10"
 crc = "3.0.0"
+serde = { version = "1.0.144", features = ["derive"] }
+openssl = { version = "=0.10.41", features = ["vendored"] }
 
 [build-dependencies]
 tonic-build = "0.7.2"
