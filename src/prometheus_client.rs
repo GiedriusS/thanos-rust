@@ -60,9 +60,9 @@ impl PrometheusClient {
     pub async fn remote_read(
         &self,
         req: tonic::Request<SeriesRequest>,
-        sender: mpsc::Sender<Result<SeriesResponse, tonic::Status>>,
+        sender: mpsc::UnboundedSender<Result<SeriesResponse, tonic::Status>>,
     ) {
-        let client = reqwest::Client::builder().http1_only().build().unwrap();
+        let client = reqwest::Client::builder().build().unwrap();
 
         let message = req.get_ref();
         let read_request = ReadRequest {
@@ -105,15 +105,20 @@ impl PrometheusClient {
             };
             stream_reader.read_exact(&mut crc).await.unwrap();
 
-            read_buffer.resize(data_size, 0);
-            if let Err(e) = stream_reader.read_exact(&mut read_buffer).await {
+            if read_buffer.len() < data_size {
+                read_buffer.resize(data_size, 0);
+            }
+            if let Err(e) = stream_reader
+                .read_exact(&mut read_buffer[..data_size])
+                .await
+            {
                 print!("err occurred {:?}!\n", e);
                 continue;
             }
 
             pub const CASTAGNOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
 
-            let calculated_checksum = CASTAGNOLI.checksum(&read_buffer);
+            let calculated_checksum = CASTAGNOLI.checksum(&read_buffer[..data_size]);
 
             if as_u32_be(&crc) != calculated_checksum {
                 panic!(
@@ -123,10 +128,12 @@ impl PrometheusClient {
                 );
             }
 
-            let resp = ChunkedReadResponse::decode(BytesMut::from(read_buffer.as_slice())).unwrap();
+            let r = &read_buffer[..data_size];
+            let resp = ChunkedReadResponse::decode(BytesMut::from(r)).unwrap();
 
             for chunked_series in resp.chunked_series {
-                let mut thanos_chks: Vec<AggrChunk> = vec![];
+                let mut thanos_chks: Vec<AggrChunk> =
+                    Vec::with_capacity(chunked_series.chunks.len());
 
                 for prom_chk in chunked_series.chunks {
                     thanos_chks.push(AggrChunk {
@@ -152,7 +159,7 @@ impl PrometheusClient {
                     })),
                 };
 
-                sender.send(Ok(series_resp)).await.unwrap();
+                sender.send(Ok(series_resp)).unwrap();
             }
         }
     }

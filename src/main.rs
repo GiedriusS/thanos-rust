@@ -4,7 +4,7 @@ use thanos::{
     LabelValuesResponse, SeriesRequest, SeriesResponse, StoreType, ZLabelSet,
 };
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{transport::Server, Request, Response, Status};
 
 #[derive(Default)]
@@ -54,7 +54,7 @@ impl Store for StoreImpl {
         Ok(Response::new(response))
     }
 
-    type SeriesStream = ReceiverStream<Result<SeriesResponse, Status>>;
+    type SeriesStream = UnboundedReceiverStream<Result<SeriesResponse, Status>>;
 
     async fn label_values(
         &self,
@@ -93,7 +93,7 @@ impl Store for StoreImpl {
         &self,
         request: tonic::Request<SeriesRequest>,
     ) -> Result<Response<Self::SeriesStream>, Status> {
-        let (tx, rx) = mpsc::channel(20);
+        let (tx, rx) = mpsc::unbounded_channel();
 
         let client = self.prometheus_client.clone();
 
@@ -101,7 +101,7 @@ impl Store for StoreImpl {
             client.remote_read(request, tx).await;
         });
 
-        Ok(Response::new(ReceiverStream::new(rx)))
+        Ok(Response::new(UnboundedReceiverStream::new(rx)))
     }
 }
 
